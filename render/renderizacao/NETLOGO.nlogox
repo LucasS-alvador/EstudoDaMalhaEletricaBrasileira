@@ -22,7 +22,7 @@ to carregar-grafo-real
   ask patches [ set pcolor gray - 3.5 ]
   
   ; A. LEITURA DOS NÓS
-  file-open "C:/Users/discente/Music/EstudoDaMalhaEletricaBrasileira/render/renderizacao/nos_netlogo.txt"
+  file-open "nos_netlogo.txt"
   let descartar-cabecalho file-read-line 
   
   while [ not file-at-end? ] [
@@ -47,7 +47,7 @@ to carregar-grafo-real
   file-close
   
   ; B. LEITURA DAS ARESTAS
-  file-open "C:/Users/discente/Music/EstudoDaMalhaEletricaBrasileira/render/renderizacao/arestas_netlogo.txt"
+  file-open "arestas_netlogo.txt"
   let descartar-cabecalho-arestas file-read-line 
   
   while [ not file-at-end? ] [
@@ -83,7 +83,7 @@ to verificar-clique-mouse
     
     if estacao-alvo != nobody [
       ask estacao-alvo [
-        if distancexy m-x m-y < 3 and color = green [
+        if distancexy m-x m-y < 4 and color = green [
           set color red          
           ask my-links [ set color red ] 
         ]
@@ -102,7 +102,7 @@ to simular-efeito-cascata
       let linhas-caidas count my-links with [ color = red ]
       let total-linhas count my-links
       
-      if (linhas-caidas / total-linhas) >= 0.40 [
+      if (linhas-caidas / total-linhas) >= 0.30 [;0.40
         set color red
         ask my-links [ set color red ]
       ]
