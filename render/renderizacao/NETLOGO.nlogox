@@ -2,26 +2,26 @@
 <model version="NetLogo 7.0.4" snapToGrid="true">
   <code><![CDATA[extensions [ csv ]
 
-; Criamos uma variável exclusiva para as subestações guardarem o nome escondido
-turtles-own [ nome-estacao ]
+turtles-own [ nome-estacao eh-gerador? ]
+links-own [ tensao-kv capacidade-maxima carga-atual ] 
 
 ; =============================================================
-; 1. O MOTOR DA SIMULAÇÃO
+; 1. O MOTOR DA SIMULAÇÃO (Roda continuamente)
 ; =============================================================
 to go
   verificar-clique-mouse
-  simular-efeito-cascata
+  recalcular-fluxo-e-sobrecarga  ; <--- NOVA LÓGICA DE FÍSICA REAL!
   tick 
 end
 
 ; =============================================================
-; 2. PROCEDIMENTO PARA CARREGAR O MAPA DO BRASIL (SEM LABELS)
+; 2. PROCEDIMENTO PARA CARREGAR O MAPA DO BRASIL
 ; =============================================================
 to carregar-grafo-real
   clear-all
   ask patches [ set pcolor gray - 3.5 ]
   
-  ; A. LEITURA DOS NÓS
+  ; A. LEITURA DOS NÓS (SUBESTAÇÕES)
   file-open "nos_netlogo.txt"
   let descartar-cabecalho file-read-line 
   
@@ -30,23 +30,29 @@ to carregar-grafo-real
     let nome item 0 linha
     let lat item 1 linha
     let lon item 2 linha
+    let gerador item 3 linha 
     
     create-turtles 1 [
-      ; Guardamos o nome na variável interna (em vez de usar 'set label nome')
       set nome-estacao nome
+      set eh-gerador? (gerador = 1)
       
-      ; Centralizando e dando zoom no Brasil
       set xcor (lon * 2.5) + 130
       set ycor (lat * 2.5) + 40
       
-      set color green
-      set shape "circle"
-      set size 0.7
+      ifelse eh-gerador? [
+        set color blue       ; Usinas Geradoras
+        set shape "house"    
+        set size 3.5         
+      ] [
+        set color green      ; Subestações normais
+        set shape "circle"
+        set size 1          
+      ]
     ]
   ]
   file-close
   
-  ; B. LEITURA DAS ARESTAS
+  ; B. LEITURA DAS ARESTAS (LINHAS DE TRANSMISSÃO)
   file-open "arestas_netlogo.txt"
   let descartar-cabecalho-arestas file-read-line 
   
@@ -54,16 +60,23 @@ to carregar-grafo-real
     let linha csv:from-row file-read-line
     let nome_origem item 0 linha
     let nome_destino item 1 linha
+    let tensao_linha item 2 linha 
     
-    ; Agora a busca é feita usando a nossa variável interna 'nome-estacao'
     let estacao_de turtles with [nome-estacao = nome_origem]
     let estacao_para turtles with [nome-estacao = nome_destino]
     
     if any? estacao_de and any? estacao_para [
       ask one-of estacao_de [
         create-link-with one-of estacao_para [
+          set tensao-kv tensao_linha
           set color yellow          
-          set thickness 0.3         
+          set thickness (tensao-kv / 1000) 
+          
+          ; REGRA FÍSICA: 
+          ; A capacidade máxima é o nível de KV. 
+          ; A carga inicial normal do sistema opera em 60% dessa capacidade.
+          set capacidade-maxima tensao-kv
+          set carga-atual (capacidade-maxima * 0.50)
         ]
       ]
     ]
@@ -83,9 +96,13 @@ to verificar-clique-mouse
     
     if estacao-alvo != nobody [
       ask estacao-alvo [
-        if distancexy m-x m-y < 4 and color = green [
+        if distancexy m-x m-y < 3 and (color = green or color = blue) [
           set color red          
-          ask my-links [ set color red ] 
+          ; Quando o nó cai, suas linhas zeram a carga e caem imediatamente
+          ask my-links [ 
+            set carga-atual 0
+            set color red 
+          ] 
         ]
       ]
     ]
@@ -94,18 +111,39 @@ to verificar-clique-mouse
 end
 
 ; =============================================================
-; 4. LÓGICA DO EFEITO CASCATA
+; 4. NOVA LÓGICA TOPOLÓGICA: RECALCULAR SOBRECARGA POR KV
 ; =============================================================
-to simular-efeito-cascata
-  ask turtles with [ color = green ] [
-    if any? my-links [
-      let linhas-caidas count my-links with [ color = red ]
-      let total-linhas count my-links
+to recalcular-fluxo-e-sobrecarga
+  ; Passo 1: Fazer as subestações verdes/azuis analisarem suas conexões perdidas
+  ask turtles with [ color = green or color = blue ] [
+    
+    ; Se a subestação notar que tem linhas que caíram (vermelhas) e linhas funcionando (amarelas)
+    let links-caidos my-links with [ color = red ]
+    let links-vivos my-links with [ color = yellow ]
+    
+    if any? links-caidos and any? links-vivos [
+      ; Pegamos a carga que passava pelas linhas caídas e dividimos entre as linhas vivas restantes
+      let carga-perdida sum [ carga-atual ] of links-caidos
+      let carga-por-linha (carga-perdida / count links-vivos)
       
-      if (linhas-caidas / total-linhas) >= 0.30 [;0.40
-        set color red
-        ask my-links [ set color red ]
+      ask links-vivos [
+        ; Adiciona a carga extra à linha sobrevivente
+        set carga-atual (carga-atual + carga-por-linha)
+        
+        ; Se a nova carga ultrapassar o limite real de KV dela... CRASH!
+        if carga-atual > capacidade-maxima * 0.60 [
+          set color red
+          set carga-atual 0
+        ]
       ]
+      
+      ; Limpa o histórico de carga das linhas vermelhas para não duplicar o cálculo no próximo tick
+      ask links-caidos [ set carga-atual 0 ]
+    ]
+    
+    ; Se todas as linhas conectadas a um nó morreram, o nó morre por isolamento
+    if any? my-links and all? my-links [ color = red ] [
+      set color red
     ]
   ]
 end]]></code>
